@@ -1,0 +1,803 @@
+---
+title: 'Google Data Analytics Capstone: Cyclistic Case Study'
+author: "Daniel Ta"
+date: "2023-06-15"
+output:
+  html_document: default
+  word_document: default
+  pdf_document: default
+---
+
+## Introduction
+
+This project is part of the Google Data Analytics Capstone: Case Study #1, and it will follow Google's 6 steps of the data analysis process: **ask**, **prepare**, **process**, **analyze**, **share** and **act**. RStudio/Kaggle will be used throughout the data collection, analysis and visualization processes.
+
+Cyclistic is a fictional bike-share company in Chicago with a fleet of over 5,800 bicycles and 600 docking stations. It offers both classic bicycles as well as pedal-assist e-bikes. Customers can pay by one of three methods: single-day pass, full-day pass or annual membership.
+
+The aim of this case study, as Director of Marketing Lily Moreno states, is to increase profits by converting single-ride and full-day customers (both known as **casual** riders) into annual **members**.
+
+Though Cyclistic is an imaginary company, real data will be obtained through an actual Chicago-based bike-sharing service called [Divvy](https://divvybikes.com/). <br><br>
+
+![](clique-studios-Qr-7vwzI6uk-unsplash-crop.jpg)<br><br>
+
+## 1. Ask
+
+During the Ask phase, the first step is to define the problem being solved:
+
+*How do we convert current casual Cyclistic customers into annual members?*
+
+In order to answer this, Moreno has formulated a few questions to guide the team as they conduct an analysis on historical ride data. The specific question she has assigned me is:
+
+*How do annual members and casual riders use Cyclistic bikes differently?*
+
+The metrics I intend to use in my analysis to identify trends and gain insights about casual riders and annual members include a combination of:
+
+1.  Time periods (time of day, day of week, month, season)
+2.  Rental duration
+3.  Starting or ending station locations
+4.  Type of bicycle (classic or ebike)<br><br>
+
+## 2. Prepare
+
+We will be using [actual trip history from Divvy](https://divvybikes.com/system-data), which is made publicly available under their [Data License Agreement](https://ride.divvybikes.com/data-license-agreement).
+
+Because data privacy protects the customer's identity and personal information, useful data such as number of rides per user, age, gender, occupation, and physical address (to differentiate tourists from local residents) cannot be used for our analysis.
+
+Variables provided in this dataset include: <br>
+1. **ride_id** *(unique key)* <br>
+2. **rideable_type** *(type of bike)* <br>
+3-4. **started_at** & **ended_at** *(starting and ending times of rental)* <br>
+5-6. **start_station_name** & **end_station_name** *(name of starting and ending station)* <br>
+7-8. **start_station_id** & **end_station_id** *(ID of stating and ending station)* <br>
+12. **start_lng**, **start_lat**, **end_lng** & **end_lat** *(exact longitude/latitude of start and end of ride)* <br>
+13. **member_casual** *(whether the customer is single-ride/full-day or has an annual membership)* <br>
+
+First, we load the required libraries.
+
+```{r libraries, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(readr)       # Import CSV files
+library(ggmap)       # Google Maps API for data visualizations
+library(scales)      # For ggplot axis scales
+library(reshape)     # Convert wide data to long data for ggplot
+```
+
+Set the working directory and import the 12 most recent monthly trip histories from CSV format into dataframes.
+
+```{r import_csv, warning=FALSE}
+setwd("./data")      # Set working directory
+
+# Import 12 monthly CSVs
+trips_2022_06 <- read_csv("202206-divvy-tripdata.csv", show_col_types = FALSE)
+trips_2022_07 <- read_csv("202207-divvy-tripdata.csv", show_col_types = FALSE)
+trips_2022_08 <- read_csv("202208-divvy-tripdata.csv", show_col_types = FALSE)
+trips_2022_09 <- read_csv("202209-divvy-tripdata.csv", show_col_types = FALSE)
+trips_2022_10 <- read_csv("202210-divvy-tripdata.csv", show_col_types = FALSE)
+trips_2022_11 <- read_csv("202211-divvy-tripdata.csv", show_col_types = FALSE)
+trips_2022_12 <- read_csv("202212-divvy-tripdata.csv", show_col_types = FALSE)
+trips_2023_01 <- read_csv("202301-divvy-tripdata.csv", show_col_types = FALSE)
+trips_2023_02 <- read_csv("202302-divvy-tripdata.csv", show_col_types = FALSE)
+trips_2023_03 <- read_csv("202303-divvy-tripdata.csv", show_col_types = FALSE)
+trips_2023_04 <- read_csv("202304-divvy-tripdata.csv", show_col_types = FALSE)
+trips_2023_05 <- read_csv("202305-divvy-tripdata.csv", show_col_types = FALSE)
+```
+
+Now that all 12 months are imported, we verify that the first and last months have the same number of columns, and that each column has the same name and type.
+
+```{r view_first_last_months}
+spec(trips_2022_06)   # First month
+spec(trips_2023_05)   # Last month
+```
+
+After confirming that column names and types match, we merge all 12 months into a dataframe named **trips_combined**.
+```{r combine_csv}
+trips_combined <- rbind(trips_2022_06, trips_2022_07, trips_2022_08, trips_2022_09,
+                        trips_2022_10, trips_2022_11, trips_2022_12, trips_2023_01, 
+                        trips_2023_02, trips_2023_03, trips_2023_04, trips_2023_05)
+```
+
+Finally, if successful, remove the 12 monthly dataframes to free up some resources from this memory-intensive project.
+```{r remove_monthly_csv}
+rm(trips_2022_06, trips_2022_07, trips_2022_08, trips_2022_09, trips_2022_10, 
+   trips_2022_11, trips_2022_12, trips_2023_01, trips_2023_02, trips_2023_03, 
+   trips_2023_04, trips_2023_05)
+```
+<br>
+
+## 3. Process
+
+Now that the entire dataset has been imported, the Process phase consists of checking and cleaning data. Though data manipulation is typically done in the Analyze step, I have done some of it here as it goes hand-in-hand with the cleaning processes. <br><br>
+
+#### NULL Values
+
+First, we will check all fields for any NULL values.
+
+```{r check_null_values}
+sum(is.na(trips_combined$ride_id))
+sum(is.na(trips_combined$rideable_type))
+sum(is.na(trips_combined$started_at))
+sum(is.na(trips_combined$ended_at))
+sum(is.na(trips_combined$start_station_name))
+sum(is.na(trips_combined$end_station_name))
+sum(is.na(trips_combined$start_station_id))
+sum(is.na(trips_combined$end_station_id))
+sum(is.na(trips_combined$start_lat))
+sum(is.na(trips_combined$start_lng))
+sum(is.na(trips_combined$end_lat))
+sum(is.na(trips_combined$end_lng))
+sum(is.na(trips_combined$member_casual))
+```
+From the results, we can see the following 6 fields have NULL values: **start_station_name**, **end_station_name**, **start_station_id**, **end_station_id**, **end_lat**, and **end_lng**
+
+Regarding start/end station names and IDs, Divvy's [ebike page](https://divvybikes.com/HOW-IT-WORKS/EBIKE-temp) website states, "you can also lock [ebikes] to any other public bike rack, light pole, signpost, or retired parking meter within the service area."
+
+In other words, ebikes do not have to be returned to or obtained from stations. Let's verify whether these trips with NULL stations are ebikes:
+
+```{r verify_null_station_ebike}
+sum(is.na(trips_combined$start_station_name))
+sum(is.na(trips_combined$start_station_name) & trips_combined$rideable_type == "electric_bike")
+```
+Indeed, all trips with NULL start stations are ebikes, so we can safely ignore these fields.
+
+Next, we take a closer look at the trips with NULL **end_lat** and **end_lng values**. After saving rides with NULL end coordinates to null_end_coord, I take a look at the results manually and select the columns in which I believe are relevant.
+
+```{r null_end_coord_df}
+null_end_coord <- filter(trips_combined, is.na(end_lat))
+# View selected columns 
+head(select(null_end_coord, rideable_type, started_at, ended_at, member_casual), n = 10L)
+```
+
+From the first 10 rows (a detailed look at all trips also confirms this), we see that only classic and docked bikes (more about docked bikes later) are listed, and many of these trips are over 24 hours long.
+
+These bikes may have been temporarily lost, stolen or some sort of user/system error. It's also a small enough number of trips that I believe it is safe to remove these from the dataset.
+
+```{r clean_null_end_lat}
+trips_cleaning <- filter(trips_combined, !is.na(end_lat))
+```
+
+<br>
+
+#### Duplicated Records
+
+The only unique value is **ride_id**, so we count the number of duplicated IDs and see that none exist.
+
+```{r check_duplicate_ride_id}
+sum(duplicated(trips_cleaning$ride_id))
+```
+<br>
+
+#### Ride Duration
+
+Calculate trip duration in minutes using **started_at** and **ended_at** and store this value in new column **ride_duration**. Also convert type from difftime to numeric (to avoid ggplot issues).
+
+```{r add_ride_duration}
+trips_cleaning <- trips_cleaning %>%
+  mutate(ride_duration = difftime(ended_at, started_at, units = "mins"))
+# Convert from difftime to numeric
+trips_cleaning$ride_duration <- as.numeric(trips_cleaning$ride_duration)
+```
+
+Next, check for any negative durations, rides between 0 and 1 minutes, and over 1 day (1440 minutes).
+
+[Divvy](https://divvybikes.com/system-data) states that they have removed, "*any trips that were below 60 seconds in length (potentially false starts or users trying to re-dock a bike to ensure it was secure).*" However, this does not seem to be the case as there are still many entries under 1 minute.
+
+```{r check_negative_ride_duration}
+# Negative trip duration
+sum(trips_cleaning$ride_duration < 0)
+# Between 0 and 1 minutes
+sum(trips_cleaning$ride_duration >= 0 & trips_cleaning$ride_duration < 1)
+# Over 1 day ()
+sum(trips_cleaning$ride_duration > 1440)
+```
+And finally, we the clean the data by removing trips under 1 minute (including negative durations) or over 1 day.
+
+```{r clean_ride_duration}
+trips_cleaning <- subset(trips_cleaning, ride_duration >= 1 & ride_duration <= 1440)
+```
+
+<br>
+
+#### Bike Types
+
+Display types of bikes offered.
+
+```{r available_bike_types}
+table(trips_cleaning$rideable_type)
+```
+From [Divvy's bike page](https://divvybikes.com/how-it-works/meet-the-bikes), it is clear what classic and electric bikes are. However, their entire website does not seem to mention what a docked bike is. Let's create a dataframe for docked bikes only and take a closer look at it.
+
+```{r check_docked_bikes}
+docked_bikes <- filter(trips_cleaning, rideable_type == "docked_bike")
+head(select(docked_bikes, rideable_type, started_at, ended_at, member_casual), n = 10L)
+table(docked_bikes$member_casual)
+```
+The value that stands out here is **member_casual**, which states that all docked bikes were rented by **casual** customers. But it still does not answer the question as to what a docked bike is. They comprise roughly 2.7% of all trips, so the dilemma is whether to include them in the dataset or not. I Googled, "*Divvy 'docked_bike' meaning*," and it seems several other people working on this case study also had the same issue.
+
+[Kelly Luu](https://www.thekellyluu.com/cyclistic-bike-share) and [sanji](https://rpubs.com/san_ji/897252) claim these were bikes removed from circulation, and thus removed from the dataset. [Jeremy Rieunier](https://jeremyrieunier.com/portfolio/divvy-cleaning) contacted Divvy, who replied and mentioned they used **docked_bike** for all classic bikes, then gradually started reclassifying them as **classic_bike** sometime in 2020.
+
+Browsing through [Divvy's trip repository](https://divvy-tripdata.s3.amazonaws.com/index.html), 
+it appears **all** trips through June 2020 were labeled as **docked_bike**.
+
+In July 2020, **electric_bike** was added. All others were still **docked_bike**. The [official City of Chicago website](https://www.chicago.gov/city/en/depts/cdot/provdrs/bike/news/2020/july/cdot-introducing-new-divvy-ebike-fleet-on-july-29-.html#:~:text=Chicago%2C%20July%2027%2C%202020%20%E2%80%93,in%20Chicago%20on%20July%2029.) confirms the introduction of ebikes late July 2020.
+
+![July 2020](202007 rideable type.jpg){#id .class width=50% height=50%}<br><br>
+
+Finally, in December 2020 we see the first use of **classic_bike**, though still mixed in with **docked_bike**. It is likely that many bikes still retained the **docked_bike** name after the migration.
+
+![December 2020](202012 rideable type.jpg){#id .class width=50% height=50%}<br><br>
+
+Knowing the above, I will go ahead and rename all **docked_bike** to **classic_bike**. However, the question as to why all **docked_bike** are **casual** riders remains unanswered.
+
+```{r convert_docked_to_classic_bike}
+trips_cleaning$rideable_type[trips_cleaning$rideable_type == "docked_bike"] <- "classic_bike"
+table(trips_cleaning$rideable_type)
+```
+
+<br><br>
+
+#### Create additional columns for: day of week, month, hour, date, season
+
+The final step will be to create several more columns for data visualization purposes, including day of the week, month, hour of the day, date and season of beginning the bike rental. Note that this can also be done in the Analyze phase.
+
+I chose seasons rather than quarters due to similarities in monthly trends. For example, the winter months of December through February had more in common than the Q1 months of January through March.
+
+```{r add_day_week_month_hour_date_season_columns}
+trips_final <- trips_cleaning %>%
+  mutate(day_of_week = wday(trips_cleaning$started_at, label=TRUE)) %>%
+  mutate(month = month(trips_cleaning$started_at, label=TRUE)) %>%
+  mutate(hour = hour(trips_cleaning$started_at)) %>%
+  mutate(date = date(trips_cleaning$started_at)) %>% 
+  mutate(season = case_when(
+    month == "Dec" | month == "Jan" | month == "Feb" ~ "Winter (Dec-Feb)",
+    month == "Mar" | month == "Apr" | month == "May" ~ "Spring (Mar-May)",
+    month == "Jun" | month == "Jul" | month == "Aug" ~ "Summer (Jun-Aug)",
+    month == "Sep" | month == "Oct" | month == "Nov" ~ "Fall (Sep-Nov)"))
+```
+
+To prevent ggplot from ordering months, days of the week and season alphabetically on the x-axis, we will manually set the order.
+
+```{r reorder_time_periods}
+trips_final$month <-
+  factor(trips_final$month, levels = c("Jun", "Jul", "Aug", "Sep", "Oct",
+                                       "Nov", "Dec", "Jan", "Feb", "Mar",
+                                       "Apr", "May"))
+trips_final$day_of_week <-
+  factor(trips_final$day_of_week, levels = c("Sun", "Mon", "Tue", "Wed",
+                                             "Thu", "Fri", "Sat"))
+trips_final$season <-
+  factor(trips_final$season, levels = c("Winter (Dec-Feb)",
+                                        "Spring (Mar-May)",
+                                        "Summer (Jun-Aug)",
+                                        "Fall (Sep-Nov)"))
+```
+
+Now that we have the finalized version of trip history, ready to be analyzed in the next phase, we can write it to a .CSV file (optionally) and clear all other dataframes from memory.
+
+```{r write_csv}
+# Write to .csv file. Uncomment next line as necessary
+# write.csv(trips_final, "trips_final.csv", row.names=FALSE)
+# Clear memory
+rm(docked_bikes, null_end_coord, trips_cleaning, trips_combined)
+```
+
+<br><br>
+
+## 4. Analyze
+
+During the Analyze phase, we can finally take a glimpse at data visualizations to identify trends and relationships between casual riders and members. Each sub-section will consist of code,  visualization and an observation about the data.
+
+Since we are working with large numbers as high as in the millions, ggplot often writes numbers on the y-axis in scientific notation. The following code will force it to write out the numbers fully.
+
+```{r full_y_axis_values}
+# Y-axis values are fully written out
+options(scipen = 999)
+```
+
+<br><br>
+
+#### A. Total Annual Rentals (and By Month)
+
+```{r dv_annual_rentals, fig.align = "center"}
+# Total annual rentals
+ggplot(trips_final, aes(fill=member_casual, x=member_casual)) + 
+  geom_bar(position="dodge") +             # Non-stacking bars
+  labs(title = "Total Annual Bike Rentals",
+       x = "Member Type",
+       y = "Total Rentals",
+       caption = "Data from June 2022 - May 2023") + 
+  theme(legend.position = "none") +      # Hide legend
+  scale_y_continuous(labels = comma)     # Comma between every 3 digits on y-axis
+```
+<br><br>**Observation**: For the entire year, member trips (~3.4 million) outnumber casual (~2.3 million).<br><br>
+
+```{r dv_monthly_rentals, fig.width=10}
+# Total rentals by month
+ggplot(trips_final, aes(fill=member_casual,x=month)) + geom_bar(position="dodge") +
+  labs(title = "Monthly Bike Rentals",
+       x = "Month",
+       y = "Rentals",
+       fill = "",                       # No legend key
+       caption = "Data from June 2022 - May 2023") + 
+  scale_y_continuous(labels = comma)
+```
+<br>**Observation**: Member trips outnumber casual trips throughout the entire year. The amount varies by month, however. The gap narrows greatly during the summer months, and in June and July casual trips are almost as high as member. Casual trips are at their lowest point during the winter months.
+
+<br><br>
+
+#### B. Total Rentals by Type of Bike (and By Month)
+
+```{r dv_bike_type, fig.align = "center"}
+# Total rentals, by type of bike
+ggplot(data = trips_final, mapping = aes(x = rideable_type, fill = member_casual)) +
+  geom_bar(position = "dodge") + 
+  labs(title = "Total Rentals, by Type of Bike",
+       x = "Bike Type",
+       y = "Total Rentals",
+       fill = "",
+       caption = "Data from June 2022 - May 2023") +
+  scale_y_continuous(labels = comma)
+```
+<br><br>**Observation**: For members, classic bikes and ebike are about even. For casual riders, ebikes are 25% more popular than classic.<br><br>
+
+```{r dv_bike_type_monthly, fig.width=10}
+# By month and type of bike
+trips_final %>% ggplot(aes(fill=member_casual,x=month)) + 
+  geom_bar(position="dodge") +
+    labs(title = "Monthly Rentals by Type of Bike",
+       x = "Month",
+       y = "Rentals",
+       fill = "",
+       caption = "Data from June 2022 - May 2023") + 
+    scale_y_continuous(labels = comma) +
+    facet_wrap(~rideable_type)
+```
+<br>**Observation**: For the most part, bike types and membership status match up with overall monthly rental. For ebike trips, casual actually outnumbers member during the months of June and July.<br><br>
+
+#### C. Total Rentals by Day of Week (and By Season)
+
+```{r dv_day_of_week, fig.align = "center"}
+# By day of week
+ggplot(trips_final, aes(fill=member_casual,x=day_of_week)) + geom_bar(position="dodge") +
+  labs(title = "Total Bike Rentals by Day of Week",
+       x = "",
+       y = "Rentals",
+       fill = "",
+       caption = "Data from June 2022 - May 2023") +
+  scale_y_continuous(labels = comma)
+```
+<br><br>**Observation**: For members, rentals peak mid-week while casual trips peak at the weekend.<br><br>
+
+```{r dv_day_of_week_and_season, fig.width=10}
+# By day of week, faceted by season
+ggplot(trips_final, aes(fill=member_casual,x=day_of_week)) + geom_bar(position="dodge") +
+  labs(title = "Total Bike Rentals by Day of Week and Season",
+       x = "",
+       y = "Rentals",
+       fill = "",
+       caption = "Data from June 2022 - May 2023") +
+  scale_y_continuous(labels = comma) +
+  facet_wrap(~season)
+```
+<br>**Observation**: The member mid-week vs. casual weekend peaks stay true throughout the year, though the total amount of trips varies greatly by season. The only time casual riders outnumber members is during summer weekends.<br><br>
+
+#### D. Rentals by Hour of the Day (and By Type of Bike and Season)
+
+```{r dv_hour_of_day, fig.width=10, fig.align = "center"}
+# By hour of day
+ggplot(data = trips_final, mapping = aes(x = hour, fill = member_casual)) +
+  geom_bar(position = "dodge") +
+  labs(title = "Bike Rentals by Hour of the Day",
+       x = "Hour",
+       y = "Bike Rentals",
+       fill = "",
+       caption = "By hour of starting rental. Data from June 2022 - May 2023") +
+  ## Label x-axis with 12-hour AM/PM rather than 24-hour format, with 2-hour intervals
+  scale_x_continuous(breaks = c(0,2,4,6,8,10,12,14,16,18,20,22),
+                     labels = c("12 AM", "2", "4", "6", "8", "10",
+                                "12 PM", "2", "4", "6", "8", "10 PM"))
+```
+<br>**Observation**: For casual riders, there is a steady rise and fall between the lowest and highest points of 4 AM and 5 PM. Members also peak at 5 PM, but they also have a smaller, second peak at 8 AM. Members heavily outnumber casuals for most of the waking hours, while casuals have a slightly higher margin between 11 PM and 3 AM. <br><br>
+
+
+```{r dv_hour_and_bike, fig.width=10}
+# By hour of day and type of bike
+trips_final %>% 
+  ggplot(mapping = aes(x = hour, fill = member_casual)) +
+  geom_bar(position = "dodge") +
+  labs(title = "Bike Rentals by Hour of the Day and Type of Bike",
+       x = "Hour",
+       y = "Bike Rentals",
+       fill = "",
+       caption = "By hour of starting rental. Data from June 2022 - May 2023") +
+  scale_x_continuous(breaks = c(0,3,6,9,12,15,18,21),
+                     labels = c("12 AM", "3", "6", "9",
+                                "12 PM", "3", "6", "9 PM")) +
+  facet_wrap(~rideable_type)
+```
+<br>**Observation**: Results fall in line in terms of hours of the day for casual riders and members. The only minor detail of note is small bump in casual ebikes at 8 AM.<br><br>
+
+```{r dv_hour_and_season, fig.width=10}
+# By hour, faceted by season
+ggplot(data = trips_final, mapping = aes(x = hour, fill = member_casual)) +
+  geom_bar(position = "dodge") +
+  labs(title = "Bike Rentals by Hour of the Day and Season",
+       x = "Hour",
+       y = "Bike Rentals",
+       fill = "",
+       caption = "By hour of starting rental. Data from June 2022 - May 2023") +
+  ## Label x-axis with 12-hour AM/PM rather than 24-hour format, with 2-hour intervals
+  scale_x_continuous(breaks = c(0,3,6,9,12,15,18,21),
+                     labels = c("12 AM", "3", "6", "9",
+                                "12 PM", "3", "6", "9 PM")) +
+  facet_wrap(~season)
+```
+<br>**Observation**: Members clearly outnumber casuals for winter, spring and fall. However, in the summer casuals have more riders in the afternoon between 12 PM and 3 PM as well as the late hours of 8 PM to 4 AM.<br><br>
+
+#### E. Average Trip Durations by Month (or Day of Week)
+
+```{r calculate_average_monthly_duration}
+# Average rental duration, by month
+
+# Create new dataframe for mean ride duration, by month
+avg_duration_month <- aggregate(trips_final$ride_duration,
+                                by=list(trips_final$month, trips_final$member_casual), FUN = mean)
+
+# Rename columns
+colnames(avg_duration_month) <- c("month", "member_casual", "avg_duration")
+
+# Reorder months from May to April
+avg_duration_month$month <-
+  factor(avg_duration_month$month,
+         levels = c("Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+                    "Jan", "Feb", "Mar", "Apr", "May"))
+
+# View avg_duration_month
+avg_duration_month
+```
+
+
+```{r dv_average_monthly_duration, fig.width=10}
+avg_duration_month %>% ggplot(aes(x = month, y = avg_duration, color = member_casual)) +
+  geom_point(size = 2) + geom_line(linewidth = 1, aes(group = member_casual)) +
+  labs(title = "Average Bike Rental Duration by Month",
+       x = "Month",
+       y = "Average Duration (minutes)",
+       color = "",
+       caption = "Data from June 2022 - May 2023")
+```
+<br>**Observation**: Surprisingly, casual rides outnumber members throughout the entire year despite single rides costing by the minute. For members, the average ride duration is relatively stable at 10.4 minutes per trip in January to 13.9 minutes in June.
+
+A key observation here is that, not only are casual rentals much higher in the summer (see Monthly Bike Rentals), the average ride is also much longer especially around the summer months. December is the lowest at 13.6 minutes per trip, while in June this number is a whopping 23.8 minutes.<br><br>
+
+```{r calculate_average_duration_by_day}
+# Average rental duration, by day of week
+
+# Create new dataframe for mean ride duration, by day of week
+avg_duration_day <- aggregate(trips_final$ride_duration, 
+                              by=list(trips_final$day_of_week, 
+                                      trips_final$member_casual), FUN = mean)
+
+## Rename columns
+colnames(avg_duration_day) <- c("day_of_week", "member_casual", "avg_duration")
+
+## Force day of week order
+avg_duration_day$day_of_week <- factor(avg_duration_day$day_of_week,
+                                       levels = c("Sun", "Mon", "Tue", "Wed",
+                                                  "Thu", "Fri", "Sat"))
+
+# View avg_duration_day
+avg_duration_day
+```
+
+```{r dv_average_duration_by_day}
+avg_duration_day %>% 
+  ggplot(aes(x = day_of_week, y = avg_duration, color = member_casual)) +
+  geom_point(size = 2) +
+  geom_line(linewidth = 1, aes(group = member_casual)) +
+  labs(title = "Average Bike Rental Duration by Day of the Week",
+       x = "Day",
+       y = "Average Duration (minutes)",
+       color = "",
+       caption = "Data from June 2022 - May 2023")
+```
+<br><br>**Observation**: Similar to by month, casual trip durations are longer than members. Though number of member trips peak mid-week (see Total Rentals by Day of Week), the inverse is true in terms of minutes per trip, which is highest at the weekend. Minutes vary by just a couple minutes, with 11.8 minutes per trip on Monday to 13.9 minutes on Saturday.
+
+Casuals trips are also highest at the weekend, and durations vary between 18.3 minutes on Wednesday to 24.5 minutes on Sunday.<br><br>
+
+#### F. Total Trips by Starting/Ending Station
+
+```{r calculate_popular_starting_stations}
+# By starting station
+
+# Create three dataframes (total, casual, member) with a list unique start stations
+# Also has a column for number of rentals for each station, sorted in descending order
+start_stations <- count(trips_final, start_station_name, sort = TRUE)
+start_stations_casual <-
+  count(trips_final %>% filter(member_casual == "casual"),
+        start_station_name, sort = TRUE)
+start_stations_member <-
+  count(trips_final %>% filter(member_casual == "member"),
+        start_station_name, sort = TRUE)
+
+# Rename second columns to "total" or member type
+colnames(start_stations)[2] ="total"
+colnames(start_stations_casual)[2] ="casual"
+colnames(start_stations_member)[2] ="member"
+
+# Merge three dataframes into one
+start_stations_final <- full_join(start_stations, start_stations_casual,
+                                  by = "start_station_name") %>%
+  full_join(start_stations_member, by = "start_station_name")
+
+# Clear 3 individual start_station dataframes from memory
+rm(start_stations, start_stations_casual, start_stations_member)
+
+# View first 20 rows of merged dataframe
+head(start_stations_final, n = 20)
+```
+
+Nearly 800,000 trips do not begin at a station. As previously mentioned, these should only be ebikes. We will verify this:
+```{r verify_null_starting_station_ebike}
+# Verify that all rentals with NULL starting stations are from ebikes
+nrow(trips_final %>% filter(rideable_type == "electric_bike" & is.na(start_station_name)))
+nrow(trips_final %>% filter(rideable_type == "classic_bike" & is.na(start_station_name)))
+```
+
+We will go ahead and remove trips with NULL starting station from this dataset.
+```{r remove_null_starting_stations}
+# Remove rows with NULL starting stations from dataframe
+start_stations_final <- start_stations_final %>% filter(!is.na(start_station_name))
+```
+
+To better pinpoint stations with a higher potential to convert casual riders, we will add a column for casual:member ratio.
+```{r add_casual_member_ratio_to_starting_stations}
+# Add column for casual:member ratio
+start_stations_final <- start_stations_final %>% mutate(cm_ratio = casual / member)
+
+# View first 20 rows of modified dataframe with casual:member ratio
+head(start_stations_final, n = 20)
+```
+
+Next, we create a list of stations with at least 10,000 casual trips as well as at least a 1.0 casual:member ratio (can be edited as needed).
+```{r filter_top_starting_stations}
+# Casual rentals and casual:member ratio can be edited as needed
+start_stations_top <- start_stations_final %>% filter(casual > 10000 & cm_ratio > 1)
+
+# View list of stations with >10,000 casual rentals and >1.0 casual:member ratio
+start_stations_top
+```
+
+Since it is easier to use with wide data (as opposed to long data) for ggplot, we will use the **melt** function from the **reshape** library to convert it to wide format.
+
+```{r convert_starting_stations_to_long_format}
+# Convert from wide data to long data for ggplot purposes
+# Total rentals and casual:member columns are no longer needed
+start_stations_long <- select(start_stations_top, start_station_name, casual, member)
+
+# fixes dplyr and reshape library conflict
+start_stations_long <- as.data.frame(start_stations_long) 
+
+start_stations_long <- melt(start_stations_long, id = "start_station_name")
+
+# Rename the columns
+colnames(start_stations_long) <- c("start_station_name", "member_casual", "rentals")
+```
+
+
+
+```{r dv_top_starting_stations}
+# Bar chart visualization, rotated on x-axis.
+# Sorted by totals rentals in descending order
+# By default, ggplot orders the stations by alphabetical street name.
+# fct_reorder forces it to sort by value instead
+start_stations_long %>%
+  mutate(start_station_name = fct_reorder(start_station_name, rentals)) %>% 
+  ggplot(aes(x = start_station_name, y = rentals, fill = member_casual)) +
+  geom_bar(position="dodge", stat="identity") + coord_flip() +
+  labs(title = "Total Bike Rentals by Starting Station",
+       subtitle = "Stations with 10,000+ casual rentals and 1.0 casual:member ratio",
+       caption = "Data from June 2022 - May 2023",
+       x = "Starting Station", y = "Rentals", fill = "")
+```
+<br>**Observation**: These 12 stations have the highest number of casual bike rentals. "Street Dr & Grand Ave" leads the pack with over 54,000 casual trips followed by "DuSable Lake Shore Dr & Monroe St" with 31,000. Both of these stations also have over 3 times as many casual riders than members, so there could be a lot of untapped potential to convert these customers.
+
+It should be noted, however, that we have no data on how many of these casual riders are tourists vs. local residents (and we are only concerned with the latter). We can consider disregarding stations which are near a popular tourist attraction.<br><br>
+
+For comparison purposes, we can repeat the entire process for ending stations.<br><br>
+
+```{r dv_top_ending_stations}
+# List unique end stations, frequency of each, descending order
+end_stations <- count(trips_final, end_station_name, sort = TRUE)
+end_stations_casual <- count(trips_final %>%
+                               filter(member_casual == "casual"),
+                             end_station_name, sort = TRUE)
+end_stations_member <- count(trips_final %>%
+                               filter(member_casual == "member"),
+                             end_station_name, sort = TRUE)
+
+# Rename second columns
+colnames(end_stations)[2] ="total"
+colnames(end_stations_casual)[2] ="casual"
+colnames(end_stations_member)[2] ="member"
+
+# Merge dataframes
+end_stations_final <-
+  full_join(end_stations, end_stations_casual, by = "end_station_name") %>%
+  full_join(end_stations_member, by = "end_station_name")
+
+# Add column for casual:member ratio
+end_stations_final <- end_stations_final %>% mutate(cm_ratio = casual / member)
+
+# Create list stations with at least 1.0 casual:member ratio and 10000+ rentals
+end_stations_top <- end_stations_final %>% filter(casual > 10000 & cm_ratio > 1)
+
+##Convert End Stations data frame to long format (since ggplot does not like wide format)
+library(reshape)
+end_stations_long <- select(end_stations_top, end_station_name, casual, member)
+end_stations_long <- as.data.frame(end_stations_long)	## dplyr and reshape conflict
+end_stations_long <- melt(end_stations_long, id = "end_station_name")
+colnames(end_stations_long) <- c("end_station_name", "member_casual", "rentals")
+
+
+# Bar chart visualization, rotated on x-axis.
+# Sorted by casual rentals, descending
+# By default, ggplot orders the stations by alphabetical street name.
+# fct_reorder forces it to sort by value instead
+end_stations_long %>%
+  mutate(end_station_name = fct_reorder(end_station_name, rentals)) %>% 
+  ggplot(aes(x = end_station_name, y = rentals, fill = member_casual)) +
+  geom_bar(position="dodge", stat="identity") + coord_flip() +
+  labs(title = "Bike Rentals by Ending Station",
+       subtitle = "Stations with 10,000+ casual rentals and 1.0 casual:member ratio",
+       caption = "Data from June 2022 - May 2023",
+       x = "Ending Station", y = "Rentals", fill = "")
+```
+<br>**Observation**: Comparing the starting and ending station results, we can see the same stations listed albeit in a slightly different order. The only station which does not appear on both lists is *Michigan Ave & 8th St*, as its 9,631 ending station trips falls just below the 10,000 quota.<br><br>
+
+#### G. By Geographic Coordinates
+
+The previous section only considers each station individually, rather than a geographical area which may have several popular several stations in close proximity. Targeting these areas could be more cost effective for the marketing budget than individual stations.
+
+First, let's take a look at the coordinates of the most popular station with casual riders, "Streeter Dr & Grand Ave."
+```{r street_dr_grand_ave_coords}
+# View trips starting from most popular starting station, "Streeter Dr & Grand Ave"
+head(trips_final %>%
+       filter(start_station_name == "Streeter Dr & Grand Ave") %>%
+       select(start_station_name, start_lng, start_lat), n = 20L)
+
+# Get summary
+summary(trips_final %>%
+          filter(start_station_name == "Streeter Dr & Grand Ave") %>%
+          select(start_station_name, start_lng, start_lat))
+```
+We can see that most of the coordinates are the same or very near to each other. However, from the summary the min/max longitude or latitude can be 0.2 degrees away from the average. For reference, 0.1 degrees is 11.1 km (6.9 mi). Since the 1st and 3rd quadrant coordinates are the same, we can use the median longitude and latitude values for the next step.
+
+We will be using the top stations from **start_stations_long** and calculating their median latitude and longitude values from **trips_final**.
+```{r calculate_station_coords}
+# Create dataframe with stations and longitude, then rename columns
+station_lng <- aggregate(trips_final$start_lng, by=list(trips_final$start_station_name),
+                         FUN = mean)
+colnames(station_lng) <- c("start_station_name", "lng")
+
+# Create dataframe with stations and latitude, then rename columns
+station_lat <- aggregate(trips_final$start_lat, by=list(trips_final$start_station_name),
+                         FUN = mean)
+colnames(station_lat) <- c("start_station_name", "lat")
+
+# Full join two dataframes
+station_coord <- full_join(station_lng, station_lat, by = "start_station_name")
+
+# Left join onto our previous start_stations_top dataframe, adding latitude
+start_stations_top_with_coord <- left_join(start_stations_top, station_coord,
+                                           by = "start_station_name")
+
+# Sort by number of casual riders, decreasing
+start_stations_top_with_coord <- 
+  start_stations_top_with_coord[order(start_stations_top_with_coord$casual,
+                                      decreasing = TRUE),]
+
+```
+
+Next, we need to use the **ggmaps** library and functions to create maps of Chicago.
+
+Note that this process requires the user to register for a private [Google Maps API Key](https://mapsplatform.google.com/), and you do get charged for each query. Though Stamen Maps is a free alternative, I prefer the appearance of Google Maps.
+
+Rather than having to execute the query each time I run this notebook (and racking up charges), I ran the following code chunk once and saved the maps to my local drive for use in future sessions. I set different zoom levels and different Chicago landmarks to center the map on because if I set location to "Chicago," the entire east half of the map will just be Lake Michigan.
+
+```{r get_google_maps}
+# This entire section only needs to be run once, therefore all lines are commented out
+
+# The following code is required prior to using the get_map() function
+  # register_google(key = "PRIVATE GOOGLE MAPS API KEY")
+
+# Access various zoom levels (higher number = increased zoom) of Chicago,
+# centered on a Chicago landmark
+  # chicago_11_zoom <- get_map(location = "Garfield Park Conservatory", zoom = 11)
+  # chicago_12_zoom <- get_map(location = "Old Town Chicago", zoom = 12)
+  # chicago_13_zoom <- get_map(location = "Quartino Ristorante Chicago", zoom = 13)
+
+# Save maps to local drive
+  # save(chicago_11_zoom, file = "chicago_11_zoom.RData")
+  # save(chicago_12_zoom, file = "chicago_12_zoom.RData")
+  # save(chicago_13_zoom, file = "chicago_13_zoom.RData")
+```
+
+On subsequent sessions, we can just load the maps from the local drive.
+```{r local_chicago_maps, warning=FALSE}
+setwd("./data")      # Set working directory
+
+# Load maps from locally saved files
+load(file = "chicago_11_zoom.RData")
+load(file = "chicago_12_zoom.RData")
+load(file = "chicago_13_zoom.RData")
+```
+
+Let us take a look at our most zoomed out map with the top starting stations plotted.
+```{r dv_chicago_map_11_zoom}
+ggmap(chicago_11_zoom) + 
+  # Plot a point for each of the top starting stations
+  # Sized according to number of casual trips
+  geom_point(data = start_stations_top_with_coord,
+             mapping = aes(x = lng, y = lat, size = casual), alpha = 0.5)
+```
+
+We can see that most of the stations are in the central area along the lake. Let's zoom in a bit more, add station name labels, and remove unnecessary x- and y-axis coordinate information.
+
+```{r}
+ggmap(chicago_12_zoom) + 
+  # Plot a point for each of the top starting stations
+  # Sized according to number of casual trips
+  geom_point(data = start_stations_top_with_coord,
+             mapping = aes(x = lng, y = lat, size = casual), alpha = 0.5, color = "red") +
+  # Add station name as a label. hjust to offset to the right
+  geom_text(data = start_stations_top_with_coord,
+            mapping = aes(x = lng, y = lat, label = start_station_name),
+            size = 2, hjust = -0.1) +
+  labs(title = "Busiest Stations by Number of Casual Riders",
+       x = "", y = "", size = "Total casual trips") +
+  # Remove all x- and y-axis text and ticks
+  theme(axis.text.x=element_blank(),
+        axis.ticks.x=element_blank(),
+        axis.text.y=element_blank(),
+        axis.ticks.y=element_blank())
+```
+
+And finally, zoom in one more time and re-run the code. Note that our northernmost station, "Montrose Harbor" falls outside the boundaries of the map, which results in the "missing values" warning.
+
+```{r}
+ggmap(chicago_13_zoom) + 
+  # Plot a point for each of the top starting stations
+  # Sized according to number of casual trips
+  geom_point(data = start_stations_top_with_coord,
+             mapping = aes(x = lng, y = lat, size = casual), alpha = 0.5, color = "red") +
+  # Add station name as a label. hjust to offset to the right
+  geom_text(data = start_stations_top_with_coord,
+            mapping = aes(x = lng, y = lat, label = start_station_name),
+            size = 2, hjust = -0.1) +
+  labs(title = "Busiest Stations by Number of Casual Riders",
+       x = "", y = "", size = "Total casual trips") +
+  # Remove all x- and y-axis text and ticks
+  theme(axis.text.x=element_blank(),
+        axis.ticks.x=element_blank(),
+        axis.text.y=element_blank(),
+        axis.ticks.y=element_blank())
+```
+
+<br>**Observation**: Of our 11 starting stations, 10 are concentrated near the waterfront between "Shedd Aquarium" in the south and "Theater on the Lake" in the north. "Montrose Harbor" is a bit further to the north of this area. <br><br>
+
+
+## 5. Share
+
+For the Share stage, I share the results of the data analysis with Cyclistic's shareholders (Director of Marketing [Lily Moreno], the marketing analytics team, and the executive team).
+
+The software used in this presentation is Google Sheets. I chose approximately half of the data visualizations used in this project and displayed them in a straightforward and understandable manner (using the 5 second rule).
+
+![](Cyclistic Presentation - page 1.jpg)
+![](Cyclistic Presentation - page 2.jpg)
+![](Cyclistic Presentation - page 3.jpg)
+
+## 6. Act
+
+Finally, the presentation concludes with a few recommendations on how to convert casual riders into members, in addition to an Appendix with links to the original Divvy dataset and this R Markdown file.
+
+![](Cyclistic Presentation - page 4.jpg)
